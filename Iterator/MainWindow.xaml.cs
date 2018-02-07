@@ -18,10 +18,9 @@ namespace Iterator
         public MainWindow()
         {
             InitializeComponent();
+
             _pex = new PExHelper(this);
             _pex.Init();
-            Title = $"Quorter {_pex.Quarter}";
-
             _pex.OnBanckrupcy += (_, __) => { if (!_testRunning) MessageBox.Show("You are bankrupt!"); };
             _pex.OnEndGame += (_, __) => { if (!_testRunning) MessageBox.Show("End of game"); };
 
@@ -50,26 +49,26 @@ namespace Iterator
 
         private void Step_Click(object sender, RoutedEventArgs e)
         {
-            _pex.Step();
+            _pex.Run();
             ReadSummary_Click(sender, e);
-            Title = $"Quorter {_pex.Quarter}";
         }
 
         private void Back_Click(object sender, RoutedEventArgs e)
         {
             _pex.Back();
-            Title = $"Quorter {_pex.Quarter}";
+            ReadSummary_Click(sender, e);
         }
 
         private void Restart_Click(object sender, RoutedEventArgs e)
         {
             _pex.Restart();
-            Title = $"Quorter {_pex.Quarter}";
+            ReadSummary_Click(sender, e);
         }
 
         private void ReadSummary_Click(object sender, RoutedEventArgs e)
         {
             _pex.ReadSummary();
+            Title = $"Quorter {_pex.Quarter}";
 
             if (_pex.TestBitmaps.Count >= 7 && !_testRunning)
             {
@@ -111,7 +110,7 @@ namespace Iterator
 
             for (int i = 0; i < 1000; i++)
             {
-                Title = $"Quorter {_pex.Quarter}";
+                Title = $"Quarter {_pex.Quarter}";
 
                 _pex.AircraftPurchasesPerQtr = (uint) (1 + rnd.Next(2));
                 _pex.Hiring = (uint)(30 + rnd.Next(200));
@@ -120,7 +119,7 @@ namespace Iterator
                 _pex.TargetServiceScope = 0.1 + 1 / (rnd.Next(10) + 1);
 
                 int prevQuarter = _pex.Quarter;
-                _pex.Step();
+                _pex.Run();
                 _pex.ReadSummary();
 
                 if (prevQuarter == _pex.Quarter)

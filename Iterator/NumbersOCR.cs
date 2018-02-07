@@ -13,7 +13,6 @@ namespace Iterator
     {
         public char Char { get; set; }
         public Bitmap Template { get; set; }
-        public double Brightness { get; set; }
     }
 
     public class NumbersOCR
@@ -36,7 +35,6 @@ namespace Iterator
             {
                 var rect = new RectangleF(x, 0, widths[i], template.Height);
                 _digits.Add(new CharTemplate() { Char = numbers[i], Template = CopyBitmapRect(template, rect) });
-                _digits.Last().Brightness = CalcRectBrightness(_digits.Last().Template, new Rect(0, 0, _digits.Last().Template.Width, _digits.Last().Template.Height));
                 x += widths[i];
             }
 
@@ -51,7 +49,7 @@ namespace Iterator
 
         public string Recognize(Bitmap bitmap)
         {
-            string diffResult = string.Empty, brightResult = string.Empty;
+            string diffResult = string.Empty;
             int startX = -1, startY = -1, endX = -1;
 
             // First, determine start Y,
@@ -101,23 +99,14 @@ namespace Iterator
                         double b = CompareBitmaps(bitmap, rect, _digits[i].Template);
                         if ((i == 0 || i == _digits.Count-1) && b > 4) b = 100;
                         _subResults[i] = b;
-
-                        // Than find the difference between digit region brightness and rectangle brightness 
-                        _brighResults[i] = Math.Abs(_digits[i].Brightness - CalcRectBrightness(bitmap, rect));
                     }
                     int minIndex = Array.IndexOf(_subResults, _subResults.Min());
                     int brIndex = Array.IndexOf(_brighResults, _brighResults.Min());
 
                     diffResult += _digits[minIndex].Char;
-                    brightResult += _digits[brIndex].Char;
-
                     startX += _digits[minIndex].Template.Width;
                 }
             }
-
-            //Debug.Assert(diffResult != brightResult);
-            if (diffResult != brightResult)
-                Debug.WriteLine(diffResult + " != " + brightResult);
 
             return diffResult;
         }
@@ -146,22 +135,6 @@ namespace Iterator
                     }
             }
             return diff;
-        }
-
-        double CalcRectBrightness(Bitmap bitmap, Rect rect)
-        {
-            double result = 0;
-
-            if (rect.Left + rect.Width <= bitmap.Width && rect.Top + rect.Height <= bitmap.Height)
-            {
-                for (int x = (int)rect.X; x < rect.X + rect.Width; x++)
-                    for (int y = (int)rect.Y; y < rect.Y + rect.Height; y++)
-                    {
-                        Color c = bitmap.GetPixel(x, y);
-                        result += c.GetBrightness();
-                    }
-            }
-            return result;
         }
 
         Bitmap BitmapImageToBitmap(BitmapImage bitmapImage)

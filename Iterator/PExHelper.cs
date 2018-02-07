@@ -167,30 +167,29 @@ namespace Iterator
 
         private Bitmap GetWindowScreenshot(IntPtr hWnd)
         {
+            Bitmap bmp = null;
+            Graphics g = null;
+            IntPtr hdcBitmap = IntPtr.Zero;
             Win32.RECT rc;
-            Win32.GetWindowRect(new HandleRef(null, hWnd), out rc);
-            if (rc.Left == 0 && rc.Right == 0 && rc.Top == 0 && rc.Bottom == 0) return null;
+            Win32.GetWindowRect(hWnd, out rc);
 
-            Bitmap bmp = new Bitmap(rc.Right - rc.Left, rc.Bottom - rc.Top, PixelFormat.Format32bppArgb);
-            Graphics gfxBmp = Graphics.FromImage(bmp);
-            IntPtr hdcBitmap;
-            try { hdcBitmap = gfxBmp.GetHdc(); } catch { return null; }
-
-            bool retCode = Win32.PrintWindow(hWnd, hdcBitmap, 0);
-            gfxBmp.ReleaseHdc(hdcBitmap);
-            if (!retCode)
+            if (rc.Right - rc.Left == 0 || rc.Bottom - rc.Top == 0) return null;
+            try
             {
-                gfxBmp.FillRectangle(new SolidBrush(Color.White), new Rectangle(System.Drawing.Point.Empty, bmp.Size));
+                bmp = new Bitmap(rc.Right - rc.Left, rc.Bottom - rc.Top, PixelFormat.Format32bppArgb);
+                g = Graphics.FromImage(bmp);
+                hdcBitmap = g.GetHdc();
+                Win32.PrintWindow(hWnd, hdcBitmap, 0);
             }
-            IntPtr hRgn = Win32.CreateRectRgn(0, 0, 0, 0);
-            Win32.GetWindowRgn(hWnd, hRgn);
-            Region region = Region.FromHrgn(hRgn);
-            if (!region.IsEmpty(gfxBmp))
+            catch { }
+            finally
             {
-                gfxBmp.ExcludeClip(region);
-                gfxBmp.Clear(Color.Transparent);
+                if (g != null)
+                {
+                    if (hdcBitmap != IntPtr.Zero) g.ReleaseHdc(hdcBitmap);
+                    g.Dispose();
+                }
             }
-            gfxBmp.Dispose();
             return bmp;
         }
 
@@ -202,6 +201,11 @@ namespace Iterator
                 g.DrawImage(source, new RectangleF(0, 0, result.Width, result.Height), srcRect, GraphicsUnit.Pixel);
             }
             return result;
+        }
+
+        private void RedrawWindow(IntPtr hWnd)
+        {
+            Win32.RedrawWindow(hWnd, IntPtr.Zero, IntPtr.Zero, Win32.RedrawWindowFlags.Frame | Win32.RedrawWindowFlags.UpdateNow | Win32.RedrawWindowFlags.Invalidate);
         }
 
 #if TEST_OCR
@@ -216,15 +220,23 @@ namespace Iterator
         {
             if (_summaryReportHwnd == IntPtr.Zero) FindWindowHandles();
 
-            // Trying to push "Summary" window to redraw
-            Win32.SendMessage(_summaryReportHwnd, Win32.WM_ERASEBKGND, new IntPtr(0), new IntPtr(0));
+            // Push window to redraw
+            RedrawWindow(_summaryReportHwnd);
 
             // Get "Summary" window screenshot
-            var sumaryBitmap = GetWindowScreenshot(_summaryReportHwnd);
-            if (sumaryBitmap == null)
+            var summaryBitmap = GetWindowScreenshot(_summaryReportHwnd);
+
+            // If call is not successful, re-try once (probably "Summary report" window was re-opened)
+            if (summaryBitmap == null)
             {
                 _summaryReportHwnd = IntPtr.Zero;
-                return;
+                FindWindowHandles();
+                if (_summaryReportHwnd != IntPtr.Zero)
+                {
+                    summaryBitmap = GetWindowScreenshot(_summaryReportHwnd);
+                    if (summaryBitmap == null) return;
+                }
+                else return;
             }
 
             var data = new List<string>();
@@ -235,7 +247,7 @@ namespace Iterator
             int delta = 38;
             while (++i < 9)
             {
-                TestBitmaps.Add(CopyBitmapRect(sumaryBitmap, new RectangleF(150, y, 40, 20)));
+                TestBitmaps.Add(CopyBitmapRect(summaryBitmap, new RectangleF(150, y, 40, 20)));
                 data.Add(_ocr.Recognize(TestBitmaps[i - 1]));
                 y += delta;
                 if (i == 4) y -= 10;
@@ -249,7 +261,7 @@ namespace Iterator
             delta = 24;
             while (++i < 10)
             {
-                TestBitmaps.Add(CopyBitmapRect(sumaryBitmap, new RectangleF(336, y, 40, 20)));
+                TestBitmaps.Add(CopyBitmapRect(summaryBitmap, new RectangleF(336, y, 40, 20)));
                 data.Add(_ocr.Recognize(TestBitmaps[i - 1]));
                 y += delta;
                 if (i == 4) { y += 10; delta = 38; }
@@ -266,20 +278,18 @@ namespace Iterator
         }
 
         /// <summary>
-        /// Send "Ctrl+R" 
+        /// Virtually press "Run" button
         /// </summary>
-        public void Step()
+        public void Run()
         {
             int prevQuarter = Quarter;
-            _parent.Topmost = true;
-            Win32.SetForegroundWindow(_gameMainHwnd);
             Win32.SendMessage(_runButton, Win32.BM_CLICK, new IntPtr(0), new IntPtr(0));
-            _parent.Topmost = false;
-            _parent.Activate();
-
+            RedrawWindow(_summaryReportHwnd);
             // Check end of game conditions
             if (Quarter == 40) OnEndGame?.Invoke(this, new EventArgs());
-            else if (prevQuarter == Quarter) OnBanckrupcy?.Invoke(this, new EventArgs());
+            else if (Quarter > 0 && prevQuarter == Quarter && (_previousStep != GameStep.Restart || _previousStep != GameStep.Back))
+                OnBanckrupcy?.Invoke(this, new EventArgs());
+            _previousStep = GameStep.Run;
         }
 
         public void Back()
@@ -290,6 +300,8 @@ namespace Iterator
             SendKeys.SendWait("y");
             _parent.Topmost = false;
             _parent.Activate();
+            RedrawWindow(_summaryReportHwnd);
+            _previousStep = GameStep.Back;
         }
 
         public void Restart()
@@ -297,10 +309,16 @@ namespace Iterator
             _parent.Topmost = true;
             Win32.SetForegroundWindow(_gameMainHwnd);
             Win32.PostMessage(_restartButtonHwnd, Win32.BM_CLICK, new IntPtr(0), new IntPtr(0));
-            SendKeys.SendWait("y");
-            SendKeys.SendWait("y");
-            Win32.SetForegroundWindow(_parentHwnd);
-            _parent.Dispatcher.Invoke(() => { Thread.Sleep(200); _parent.Topmost = false; _parent.Activate(); }, DispatcherPriority.ApplicationIdle);
+            _previousStep = GameStep.Restart;
+            _parent.Dispatcher.Invoke(() => 
+            {
+                SendKeys.SendWait("y");
+                SendKeys.SendWait("y");
+                Win32.SetForegroundWindow(_parentHwnd);
+                Thread.Sleep(200);
+                _parent.Topmost = false;
+                _parent.Activate();
+            }, DispatcherPriority.ApplicationIdle);
         }
 
         #endregion
@@ -360,6 +378,16 @@ namespace Iterator
         }
 
         public int Iteration => Quarter;
+
+        public enum GameStep
+        {
+            Run,
+            Back,
+            Restart
+        }
+
+        private GameStep _previousStep = GameStep.Restart;
+        public GameStep PreviousStep => _previousStep;
 
         #endregion
 

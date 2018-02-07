@@ -75,7 +75,6 @@
             </ListBox>
             
         </StackPanel>
-
-
     </Grid>
+
 </Window>
